@@ -1,0 +1,307 @@
+/* ==========================================================================
+   SPLASH SCREEN
+   ========================================================================== */
+
+.splash-screen {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  background: #0A0A0A;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  transition: opacity 0.5s ease-out;
+}
+
+.splash-screen.splash-exit {
+  opacity: 0;
+}
+
+.splash-screen.splash-shake {
+  animation: screen-shake 0.5s ease-in-out;
+}
+
+@keyframes screen-shake {
+  0%, 100% { transform: translate(0, 0); }
+  10% { transform: translate(-4px, -2px); }
+  20% { transform: translate(4px, 2px); }
+  30% { transform: translate(-3px, 4px); }
+  40% { transform: translate(3px, -4px); }
+  50% { transform: translate(-4px, 2px); }
+  60% { transform: translate(4px, -2px); }
+  70% { transform: translate(-2px, -3px); }
+  80% { transform: translate(2px, 3px); }
+}
+
+.splash-web-lines {
+  position: absolute;
+  inset: -50%;
+  background: repeating-conic-gradient(
+    from 0deg at 50% 50%,
+    transparent 0deg,
+    rgba(226, 54, 54, 0.07) 0.5deg,
+    transparent 1.5deg,
+    transparent 22.5deg
+  );
+  animation: web-expand 2.5s ease-out forwards;
+  transform: scale(0);
+}
+
+@keyframes web-expand {
+  0%   { transform: scale(0) rotate(0deg); opacity: 0; }
+  40%  { opacity: 1; }
+  100% { transform: scale(2.5) rotate(15deg); opacity: 0.7; }
+}
+
+.splash-web-rings {
+  position: absolute;
+  inset: -50%;
+  background: repeating-radial-gradient(
+    circle at 50% 50%,
+    transparent 0px,
+    transparent 55px,
+    rgba(226, 54, 54, 0.05) 57px,
+    transparent 59px
+  );
+  animation: rings-fade-in 2s ease-out forwards;
+  opacity: 0;
+}
+
+@keyframes rings-fade-in {
+  0%   { opacity: 0; transform: scale(0.3); }
+  50%  { opacity: 1; }
+  100% { opacity: 0.5; transform: scale(1); }
+}
+
+.splash-content {
+  position: relative;
+  z-index: 2;
+  text-align: center;
+}
+
+.splash-bugle {
+  opacity: 0;
+  transform: translateY(-20px);
+  transition: opacity 0.6s ease-out, transform 0.6s ease-out;
+  margin-bottom: 1.5rem;
+}
+
+.splash-bugle-visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.splash-bugle-the {
+  display: block;
+  font-family: 'Bangers', cursive;
+  color: #888;
+  font-size: 1.2rem;
+  letter-spacing: 0.5em;
+  text-transform: uppercase;
+}
+
+.splash-bugle-title {
+  font-family: 'Bangers', cursive;
+  color: yellow;
+  font-size: clamp(2.2rem, 7vw, 4.5rem);
+  letter-spacing: 0.06em;
+  margin: 0.15rem 0 0;
+  text-shadow:
+    2px 2px 0 rgba(0, 0, 0, 0.6),
+    0 0 30px rgba(255, 197, 0, 0.3);
+}
+
+.splash-bugle-line {
+  width: 80%;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, #FFC500, transparent);
+  margin: 0.5rem auto 0;
+}
+
+.splash-main-text {
+  font-family: 'Bangers', cursive;
+  color: #E23636;
+  font-size: clamp(3rem, 12vw, 7rem);
+  line-height: 1.05;
+  margin: 0;
+  opacity: 0;
+  transform: scale(3);
+  text-shadow:
+    3px 3px 0 #FFC500,
+    6px 6px 0 rgba(0, 0, 0, 0.5);
+  letter-spacing: 0.03em;
+}
+
+.splash-main-text-visible {
+  animation: slam-text 0.6s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+}
+
+@keyframes slam-text {
+  0%   { opacity: 0; transform: scale(3); }
+  50%  { opacity: 1; transform: scale(0.9); }
+  70%  { transform: scale(1.05); }
+  100% { opacity: 1; transform: scale(1); }
+}
+
+.splash-flash {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(circle, rgba(255, 197, 0, 0.5), transparent 70%);
+  opacity: 0;
+  pointer-events: none;
+  z-index: 1;
+}
+
+.splash-flash-active {
+  animation: flash-pulse 0.5s ease-out forwards;
+}
+
+@keyframes flash-pulse {
+  0%   { opacity: 0; }
+  15%  { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+
+/* ==========================================================================
+   TRANSITION OVERLAY
+   ========================================================================== */
+
+.transition-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9998;
+  pointer-events: none;
+}
+
+.transition-suit-up {
+  background: #E23636;
+  animation: circle-expand 1s ease-in-out forwards;
+}
+
+.transition-mask-off {
+  background: #FFC500;
+  animation: circle-expand 1s ease-in-out forwards;
+}
+
+@keyframes circle-expand {
+  0% {
+    clip-path: circle(0% at calc(100% - 4rem) calc(100% - 3.5rem));
+    opacity: 1;
+  }
+  50% {
+    clip-path: circle(150% at calc(100% - 4rem) calc(100% - 3.5rem));
+    opacity: 0.85;
+  }
+  100% {
+    clip-path: circle(150% at calc(100% - 4rem) calc(100% - 3.5rem));
+    opacity: 0;
+  }
+}
+
+
+/* ==========================================================================
+   MODE TOGGLE BUTTON
+   ========================================================================== */
+
+.mode-toggle {
+  position: fixed;
+  bottom: 2rem;
+  right: 2rem;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  cursor: pointer;
+  background: transparent;
+  overflow: visible;
+  transition: transform 0.3s ease, filter 0.3s ease;
+}
+
+.mode-toggle:hover:not(:disabled) {
+  transform: scale(1.12);
+}
+
+.mode-toggle:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none !important;
+}
+
+.mode-toggle-logo {
+  position: relative;
+  z-index: 1;
+  width: 70px;
+  height: 70px;
+  object-fit: cover;
+  border-radius: 50%;
+  filter: drop-shadow(0 4px 12px rgba(0, 0, 0, 0.4));
+  transition: filter 0.3s ease;
+}
+
+.mode-toggle:hover:not(:disabled) .mode-toggle-logo {
+  filter: drop-shadow(0 4px 20px rgba(226, 54, 54, 0.6));
+}
+
+.mode-toggle-pulse {
+  position: absolute;
+  inset: -8px;
+  border-radius: 50%;
+  pointer-events: none;
+  animation: pulse-logo 2s ease-in-out infinite;
+}
+
+@keyframes pulse-logo {
+  0%   { box-shadow: 0 0 0 0 rgba(226, 54, 54, 0.4); }
+  70%  { box-shadow: 0 0 0 18px rgba(226, 54, 54, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(226, 54, 54, 0); }
+}
+
+
+/* ==========================================================================
+   RESPONSIVE
+   ========================================================================== */
+
+@media (max-width: 640px) {
+  .mode-toggle {
+    right: 1rem;
+    bottom: 1.5rem;
+  }
+
+  .mode-toggle-logo {
+    width: 56px;
+    height: 56px;
+  }
+}
+
+
+/* ==========================================================================
+   ACCESSIBILITY
+   ========================================================================== */
+
+@media (prefers-reduced-motion: reduce) {
+  .splash-web-lines,
+  .splash-web-rings,
+  .splash-main-text-visible,
+  .splash-flash-active,
+  .mode-toggle-pulse {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+
+  .splash-screen.splash-shake {
+    animation: none !important;
+  }
+
+  .splash-bugle {
+    transition-duration: 0.01ms !important;
+  }
+
+  .transition-overlay {
+    animation-duration: 0.2s !important;
+  }
+}

@@ -15,6 +15,8 @@ app.use(express.json({ limit: '100kb' }));
 const ALLOWED_ORIGINS = [
   'http://localhost:3000',
   'http://localhost:3001',
+  'https://daily-bugglespiderman.com',
+  'http://daily-bugglespiderman.com',
   process.env.FRONTEND_URL,
 ].filter(Boolean);
 

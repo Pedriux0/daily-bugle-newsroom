@@ -7,7 +7,11 @@ function stripCitations(text: string): string {
   return text
     .replace(/<cite[^>]*>[\s\S]*?<\/cite>/g, '')
     .replace(/<\/?cite[^>]*>/g, '')
-    .replace(/\s{2,}/g, ' ')
+    // Small models sometimes write "\n" as visible text; turn it into a real break
+    .replace(/\\n/g, '\n')
+    // Squeeze spaces but keep the line breaks that separate paragraphs
+    .replace(/[ \t]{2,}/g, ' ')
+    .replace(/ *\n */g, '\n')
     .trim();
 }
 
@@ -72,4 +76,18 @@ export function parseThreatResponse(text: string): ThreatData {
       recommended_actions: ['Retry threat scan', 'Run system diagnostics'],
     };
   }
+}
+
+/**
+ * Reads a string field out of a JSON object that is still being streamed,
+ * e.g. '{"headline":"SPIDER-MAN STR' → 'SPIDER-MAN STR'. Used for live previews.
+ */
+export function readPartialField(raw: string, key: string): string {
+  const match = raw.match(new RegExp(`"${key}"\\s*:\\s*"((?:[^"\\\\]|\\\\.)*)`));
+  if (!match) return '';
+  return match[1]
+    .replace(/\\n/g, '\n')
+    .replace(/\\"/g, '"')
+    .replace(/\\\\/g, '\\')
+    .replace(/\\$/, '');
 }

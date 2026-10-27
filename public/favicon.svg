@@ -1,0 +1,48 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100" height="100">
+  <!-- Background -->
+  <rect width="100" height="100" fill="white" rx="12"/>
+
+  <!-- Left legs (back pair - outermost) -->
+  <line x1="50" y1="52" x2="12" y2="72" stroke="#111" stroke-width="4" stroke-linecap="round"/>
+  <line x1="12" y1="72" x2="6" y2="85" stroke="#c0392b" stroke-width="3.5" stroke-linecap="round"/>
+
+  <!-- Left legs (middle pair) -->
+  <line x1="50" y1="48" x2="14" y2="55" stroke="#111" stroke-width="4" stroke-linecap="round"/>
+  <line x1="14" y1="55" x2="6" y2="64" stroke="#c0392b" stroke-width="3.5" stroke-linecap="round"/>
+
+  <!-- Left legs (front pair) -->
+  <line x1="50" y1="42" x2="18" y2="34" stroke="#111" stroke-width="4" stroke-linecap="round"/>
+  <line x1="18" y1="34" x2="10" y2="22" stroke="#c0392b" stroke-width="3.5" stroke-linecap="round"/>
+
+  <!-- Left legs (frontmost) -->
+  <line x1="50" y1="38" x2="26" y2="22" stroke="#111" stroke-width="4" stroke-linecap="round"/>
+  <line x1="26" y1="22" x2="20" y2="12" stroke="#c0392b" stroke-width="3.5" stroke-linecap="round"/>
+
+  <!-- Right legs (back pair - outermost) -->
+  <line x1="50" y1="52" x2="88" y2="72" stroke="#111" stroke-width="4" stroke-linecap="round"/>
+  <line x1="88" y1="72" x2="94" y2="85" stroke="#c0392b" stroke-width="3.5" stroke-linecap="round"/>
+
+  <!-- Right legs (middle pair) -->
+  <line x1="50" y1="48" x2="86" y2="55" stroke="#111" stroke-width="4" stroke-linecap="round"/>
+  <line x1="86" y1="55" x2="94" y2="64" stroke="#c0392b" stroke-width="3.5" stroke-linecap="round"/>
+
+  <!-- Right legs (front pair) -->
+  <line x1="50" y1="42" x2="82" y2="34" stroke="#111" stroke-width="4" stroke-linecap="round"/>
+  <line x1="82" y1="34" x2="90" y2="22" stroke="#c0392b" stroke-width="3.5" stroke-linecap="round"/>
+
+  <!-- Right legs (frontmost) -->
+  <line x1="50" y1="38" x2="74" y2="22" stroke="#111" stroke-width="4" stroke-linecap="round"/>
+  <line x1="74" y1="22" x2="80" y2="12" stroke="#c0392b" stroke-width="3.5" stroke-linecap="round"/>
+
+  <!-- Abdomen (red, lower) -->
+  <ellipse cx="50" cy="62" rx="18" ry="22" fill="#c0392b"/>
+  <!-- Abdomen shadow -->
+  <ellipse cx="54" cy="62" rx="14" ry="20" fill="#a93226" opacity="0.4"/>
+
+  <!-- Cephalothorax (black, upper) -->
+  <ellipse cx="50" cy="40" rx="13" ry="14" fill="#1a1a1a"/>
+
+  <!-- Small fangs/chelicerae -->
+  <path d="M46,28 Q44,22 43,20" stroke="#111" stroke-width="2.5" stroke-linecap="round" fill="none"/>
+  <path d="M54,28 Q56,22 57,20" stroke="#111" stroke-width="2.5" stroke-linecap="round" fill="none"/>
+</svg>

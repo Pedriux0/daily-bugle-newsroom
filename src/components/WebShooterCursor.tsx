@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import useWebShooter, { CursorMode } from '../hooks/useWebShooter';
 
 interface WebShooterCursorProps {
@@ -7,9 +7,20 @@ interface WebShooterCursorProps {
 }
 
 const WebShooterCursor: React.FC<WebShooterCursorProps> = ({ mode, enabled }) => {
-  const canvasRef = useWebShooter(mode, enabled);
+  // Only mount the full-screen canvas once a real mouse moves — touch screens never need it
+  const [hasMouse, setHasMouse] = useState(false);
+  const canvasRef = useWebShooter(mode, enabled && hasMouse);
 
-  if (!enabled) return null;
+  useEffect(() => {
+    if (hasMouse) return;
+    const onMove = (e: PointerEvent) => {
+      if (e.pointerType === 'mouse') setHasMouse(true);
+    };
+    window.addEventListener('pointermove', onMove);
+    return () => window.removeEventListener('pointermove', onMove);
+  }, [hasMouse]);
+
+  if (!enabled || !hasMouse) return null;
 
   return (
     <canvas

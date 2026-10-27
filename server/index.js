@@ -5,6 +5,10 @@ require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
 const { registerRoutes } = require('./lib/routes');
 
 const app = express();
+
+// Behind nginx: use the visitor's address from X-Forwarded-For, so rate limits
+// and the candle counter see real visitors instead of one proxy address
+app.set('trust proxy', 1);
 const PORT = process.env.PORT || 3001;
 
 // ── Security middleware ────────────────────────────────────────────────

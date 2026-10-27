@@ -1,18 +1,28 @@
 // Shared API routes for both the production server (server/index.js) and the
 // CRA dev server (src/setupProxy.js), so the two can't drift apart.
 //
-// News:  GNews (if a key is set) → Google News RSS (free, no key) fallback,
-//        with an in-memory cache and stale-on-error so the page never hangs.
+// News:  Publisher RSS feeds with photos (free, no key) → GNews (if a key is
+//        set) → Google News RSS, with an in-memory cache and stale-on-error
+//        so the page never hangs.
 // AI:    Local neural network via Ollama (free) → template writer fallback.
+//        Requests to the model are queued one at a time (a CPU-only VPS can't
+//        run several at once) and streamed so text appears as it's written.
 
+const fs = require('fs');
+const path = require('path');
 const express = require('express');
-const { JAMESON_PROMPT, THREAT_ANALYST_PROMPT, JOB_PROMPT } = require('./prompts');
+const { JAMESON_PROMPT, THREAT_ANALYST_PROMPT, JOB_PROMPT, JAMESON_CHAT_PROMPT } = require('./prompts');
 
 const OLLAMA_URL = (process.env.OLLAMA_URL || 'http://127.0.0.1:11434').replace(/\/$/, '');
 const OLLAMA_MODEL = process.env.OLLAMA_MODEL || 'llama3.2:3b';
 
 const FETCH_TIMEOUT_MS = 6000;
-const LLM_TIMEOUT_MS = 120000; // first request also loads the model into memory
+const LLM_TIMEOUT_MS = 180000; // CPU inference + first request loads the model
+const MODEL_CONCURRENCY = Number(process.env.OLLAMA_CONCURRENCY || 1);
+const MODEL_MAX_QUEUE = Number(process.env.OLLAMA_MAX_QUEUE || 6);
+const ARTICLE_TTL_MS = 6 * 60 * 60 * 1000;
+const CHAT_MAX_MESSAGES = 12;
+const CHAT_MAX_CHARS = 600;
 const HEADLINE_TTL_MS = 30 * 60 * 1000; // keeps GNews well under 100 req/day
 const SEARCH_TTL_MS = 10 * 60 * 1000;
 const MAX_CACHE_ENTRIES = 200;
@@ -23,16 +33,26 @@ const jsonBody = express.json({ limit: '100kb' });
 const cache = new Map();
 const inflight = new Map();
 
-function cached(key, ttl, loader) {
+function getCached(key, ttl) {
   const hit = cache.get(key);
-  if (hit && Date.now() - hit.time < ttl) return Promise.resolve(hit.value);
+  return hit && Date.now() - hit.time < ttl ? hit.value : undefined;
+}
+
+function setCached(key, value) {
+  cache.delete(key);
+  cache.set(key, { value, time: Date.now() });
+  if (cache.size > MAX_CACHE_ENTRIES) cache.delete(cache.keys().next().value);
+}
+
+function cached(key, ttl, loader) {
+  const fresh = getCached(key, ttl);
+  if (fresh !== undefined) return Promise.resolve(fresh);
   if (inflight.has(key)) return inflight.get(key);
+  const hit = cache.get(key);
 
   const promise = loader()
     .then((value) => {
-      cache.delete(key);
-      cache.set(key, { value, time: Date.now() });
-      if (cache.size > MAX_CACHE_ENTRIES) cache.delete(cache.keys().next().value);
+      setCached(key, value);
       return value;
     })
     .catch((err) => {
@@ -137,6 +157,133 @@ async function withRssFallback(gnewsLoader, rssQuery, max) {
   }
 }
 
+// ── Publisher feeds: free, no key, and they carry the story's own photo ─
+const PUBLISHER_FEEDS = {
+  // Bugle mode: the day's national and world front page
+  bugle: [
+    { url: 'https://rss.nytimes.com/services/xml/rss/nyt/HomePage.xml', source: 'The New York Times' },
+    { url: 'https://www.theguardian.com/us-news/rss', source: 'The Guardian' },
+    { url: 'https://feeds.bbci.co.uk/news/world/us_and_canada/rss.xml', source: 'BBC News' },
+  ],
+  // Spider-Man mode: New York's own streets
+  spidey: [
+    { url: 'https://nypost.com/metro/feed/', source: 'New York Post' },
+    { url: 'https://abc7ny.com/feed/', source: 'ABC7 New York' },
+    { url: 'https://rss.nytimes.com/services/xml/rss/nyt/NYRegion.xml', source: 'The New York Times' },
+  ],
+};
+
+const CRIME_WORDS = /crime|police|nypd|arrest|shoot|stab|robber|theft|steal|murder|kill|charged|suspect|assault|fire|crash|subway|attack|scam|gun|cops?\b|court|sentenc/i;
+const FEED_TTL_MS = 15 * 60 * 1000;
+const YOUTUBE_TTL_MS = 30 * 60 * 1000;
+
+function xmlAttr(attrs, name) {
+  const m = attrs.match(new RegExp(`\\b${name}="([^"]*)"`));
+  return m ? decodeEntities(m[1]) : '';
+}
+
+/** The largest image a feed item offers, sized for the page */
+function itemImage(item) {
+  const candidates = [];
+  for (const m of item.matchAll(/<(media:content|media:thumbnail|enclosure)\b([^>]*)>/g)) {
+    const url = xmlAttr(m[2], 'url');
+    const type = xmlAttr(m[2], 'type');
+    const medium = xmlAttr(m[2], 'medium');
+    if (!url || (type && !type.startsWith('image')) || (medium && medium !== 'image')) continue;
+    candidates.push({ url, width: Number(xmlAttr(m[2], 'width')) || 0 });
+  }
+  if (candidates.length === 0) return null;
+  candidates.sort((a, b) => b.width - a.width);
+  let url = candidates[0].url;
+  // NY Post encodes its paths and serves multi-megabyte originals unless asked for a width
+  if (url.includes('%2F')) url = decodeURIComponent(url);
+  if (url.includes('nypost.com/wp-content')) url = url.replace(/\?.*$/, '?quality=80&strip=all&w=1200');
+  // BBC thumbnails are 240px wide; the same image exists at 800
+  return url.replace('/ace/standard/240/', '/ace/standard/800/');
+}
+
+function stripHtml(html) {
+  return decodeEntities(html)
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/The post .* appeared first on .*$/i, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function shorten(text, max = 220) {
+  if (text.length <= max) return text;
+  return `${text.slice(0, text.lastIndexOf(' ', max))}…`;
+}
+
+async function fetchPublisherFeed({ url, source }) {
+  const response = await fetch(url, {
+    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+    headers: { 'User-Agent': 'Mozilla/5.0 (DailyBugleNewsroom)' },
+  });
+  if (!response.ok) throw new Error(`${source} feed ${response.status}`);
+  const xml = await response.text();
+
+  return (xml.match(/<item[\s>][\s\S]*?<\/item>/g) || [])
+    .map((item) => {
+      const tag = (name) => {
+        const m = item.match(new RegExp(`<${name}[^>]*>([\\s\\S]*?)</${name}>`));
+        return m ? decodeEntities(m[1]).trim() : '';
+      };
+      const published = new Date(tag('pubDate'));
+      const description = shorten(stripHtml(tag('description')));
+      return {
+        title: stripHtml(tag('title')),
+        description: description || null,
+        url: tag('link'),
+        urlToImage: itemImage(item),
+        source: { id: null, name: source },
+        publishedAt: (isNaN(published.getTime()) ? new Date() : published).toISOString(),
+        author: null,
+        content: null,
+      };
+    })
+    .filter((a) => a.title && a.url);
+}
+
+/** Mixes the feeds story by story, so no single paper takes over the page */
+function interleave(lists) {
+  const seen = new Set();
+  const out = [];
+  for (let i = 0; lists.some((list) => i < list.length); i++) {
+    for (const list of lists) {
+      const article = list[i];
+      if (!article) continue;
+      const key = article.title.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(article);
+    }
+  }
+  return out;
+}
+
+async function loadFeed(name, max) {
+  const results = await Promise.allSettled(PUBLISHER_FEEDS[name].map(fetchPublisherFeed));
+  results
+    .filter((r) => r.status === 'rejected')
+    .forEach((r) => console.warn('Publisher feed failed:', r.reason.message));
+  // Stories with a photo lead; Spider-Man mode puts crime and police news first
+  const lists = results.filter((r) => r.status === 'fulfilled').map((r) => r.value.filter((a) => a.urlToImage));
+  let articles = interleave(lists);
+  if (name === 'spidey') {
+    articles = [...articles.filter((a) => CRIME_WORDS.test(a.title)), ...articles.filter((a) => !CRIME_WORDS.test(a.title))];
+  }
+  if (articles.length >= 3) return articles.slice(0, max);
+
+  // Not enough from the publishers: GNews if configured, then Google News
+  const query = name === 'spidey' ? 'New York crime OR police OR arrest' : null;
+  return withRssFallback(
+    () => (query ? fetchGnews('search', { q: query, lang: 'en', max: String(max) }) : fetchGnews('top-headlines', { lang: 'en', country: 'us', max: String(max) })),
+    query,
+    max
+  );
+}
+
 function newsResponse(articles) {
   return { status: 'ok', totalResults: articles.length, articles };
 }
@@ -185,29 +332,108 @@ const JOBS_SCHEMA = {
   required: ['jobs'],
 };
 
-/** Runs the local model with JSON-schema constrained output. Returns raw JSON text. */
-async function ollamaChat(system, prompt, schema, maxTokens) {
-  const response = await fetch(`${OLLAMA_URL}/api/chat`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    signal: AbortSignal.timeout(LLM_TIMEOUT_MS),
-    body: JSON.stringify({
-      model: OLLAMA_MODEL,
-      stream: false,
-      format: schema,
-      keep_alive: '30m',
-      options: { temperature: 0.8, num_predict: maxTokens },
-      messages: [
-        { role: 'system', content: system },
-        { role: 'user', content: prompt },
-      ],
-    }),
+// ── Model queue: one generation at a time, bounded waiting line ────────
+let activeGenerations = 0;
+const waitingGenerations = [];
+
+class ModelBusyError extends Error {}
+
+function withModelSlot(task) {
+  if (activeGenerations >= MODEL_CONCURRENCY && waitingGenerations.length >= MODEL_MAX_QUEUE) {
+    return Promise.reject(new ModelBusyError('Local model is busy'));
+  }
+  return new Promise((resolve, reject) => {
+    const run = () => {
+      activeGenerations++;
+      task()
+        .then(resolve, reject)
+        .finally(() => {
+          activeGenerations--;
+          const next = waitingGenerations.shift();
+          if (next) next();
+        });
+    };
+    if (activeGenerations < MODEL_CONCURRENCY) run();
+    else waitingGenerations.push(run);
   });
-  const data = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(data.error || `Ollama responded with status ${response.status}`);
-  const text = data.message?.content;
-  if (!text) throw new Error('Empty response from local model');
-  return text;
+}
+
+/**
+ * Streams a chat completion from the local model, calling onToken for each
+ * piece of text. Resolves with the full text. Pass a schema to constrain the
+ * output to JSON. `signal` aborts generation (e.g. when the visitor leaves).
+ */
+function ollamaChat(messages, { schema, maxTokens, signal, onToken = () => {} }) {
+  return withModelSlot(async () => {
+    if (signal?.aborted) throw new Error('Request aborted');
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), LLM_TIMEOUT_MS);
+    const abort = () => controller.abort();
+    signal?.addEventListener('abort', abort);
+
+    try {
+      const response = await fetch(`${OLLAMA_URL}/api/chat`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        signal: controller.signal,
+        body: JSON.stringify({
+          model: OLLAMA_MODEL,
+          stream: true,
+          ...(schema && { format: schema }),
+          keep_alive: '30m',
+          options: { temperature: 0.8, num_predict: maxTokens },
+          messages,
+        }),
+      });
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        throw new Error(data.error || `Ollama responded with status ${response.status}`);
+      }
+
+      // Ollama streams newline-delimited JSON chunks
+      const decoder = new TextDecoder();
+      let buffer = '';
+      let text = '';
+      for await (const chunk of response.body) {
+        buffer += decoder.decode(chunk, { stream: true });
+        let newline;
+        while ((newline = buffer.indexOf('\n')) >= 0) {
+          const line = buffer.slice(0, newline).trim();
+          buffer = buffer.slice(newline + 1);
+          if (!line) continue;
+          const data = JSON.parse(line);
+          if (data.error) throw new Error(data.error);
+          const piece = data.message?.content || '';
+          if (piece) {
+            text += piece;
+            onToken(piece);
+          }
+        }
+      }
+      if (!text) throw new Error('Empty response from local model');
+      return text;
+    } finally {
+      clearTimeout(timeout);
+      signal?.removeEventListener('abort', abort);
+    }
+  });
+}
+
+/** Aborts when the client disconnects before the response finished. */
+function clientAbortSignal(res) {
+  const controller = new AbortController();
+  res.on('close', () => {
+    if (!res.writableEnded) controller.abort();
+  });
+  return controller.signal;
+}
+
+function startStream(res, contentType) {
+  res.writeHead(200, {
+    'Content-Type': contentType,
+    'Cache-Control': 'no-cache',
+    'X-Accel-Buffering': 'no', // stop nginx from buffering the stream
+  });
 }
 
 async function checkOllama() {
@@ -298,8 +524,37 @@ function templateJobs(category) {
   }));
 }
 
+const CHAT_FALLBACKS = [
+  "PARKER?! Is that you? The phone lines are jammed — call back later, and BRING ME PICTURES OF SPIDER-MAN!",
+  "I don't have time for this! The presses are down and that wall-crawling menace is probably behind it! Call back!",
+  "Hold on — Robbie's on the other line about Spider-Man. Call me back, and make it QUICK!",
+];
+
 function indeedSearchUrl(title) {
   return `https://www.indeed.com/jobs?${new URLSearchParams({ q: title, l: 'New York, NY' })}`;
+}
+
+// ── Candles for Ben: a shared count, kept in a small file ──────────────
+const CANDLES_FILE = process.env.CANDLES_FILE || path.join(__dirname, '..', 'data', 'candles.json');
+const CANDLE_COOLDOWN_MS = 24 * 60 * 60 * 1000;
+const litByVisitor = new Map(); // visitor address -> when they last lit one (memory only, never saved)
+
+function readCandleCount() {
+  try {
+    return Number(JSON.parse(fs.readFileSync(CANDLES_FILE, 'utf8')).count) || 0;
+  } catch {
+    return 0;
+  }
+}
+
+let candleCount = readCandleCount();
+
+function saveCandleCount() {
+  fs.mkdirSync(path.dirname(CANDLES_FILE), { recursive: true });
+  // Write then rename, so a crash mid-write never leaves a broken file
+  const tmp = `${CANDLES_FILE}.tmp`;
+  fs.writeFileSync(tmp, JSON.stringify({ count: candleCount, updatedAt: new Date().toISOString() }));
+  fs.renameSync(tmp, CANDLES_FILE);
 }
 
 // ── Routes ─────────────────────────────────────────────────────────────
@@ -326,6 +581,19 @@ function registerRoutes(app, limiter) {
     }
   });
 
+  // GET /api/news/feed/bugle | /api/news/feed/spidey — curated feeds with photos
+  app.get('/api/news/feed/:name', limiter, async (req, res) => {
+    const name = req.params.name;
+    if (!PUBLISHER_FEEDS[name]) return res.status(404).json({ error: 'Unknown feed' });
+    try {
+      const articles = await cached(`feed:${name}`, FEED_TTL_MS, () => loadFeed(name, 12));
+      res.json(newsResponse(articles));
+    } catch (error) {
+      console.error('Feed error:', error.message);
+      res.status(502).json({ error: 'Failed to load the news feed' });
+    }
+  });
+
   // GET /api/news/search?q=keyword&pageSize=10
   app.get('/api/news/search', limiter, async (req, res) => {
     if (!req.query.q) {
@@ -346,49 +614,87 @@ function registerRoutes(app, limiter) {
   });
 
   // GET /api/youtube/search?q=keyword&maxResults=5
+  // Each search costs 100 of YouTube's 10,000 free daily units, so results are
+  // cached for 30 minutes per query (and served stale if YouTube errors).
   app.get('/api/youtube/search', limiter, async (req, res) => {
+    const youtubeApiKey = process.env.YOUTUBE_API_KEY;
+    if (!youtubeApiKey) {
+      return res.status(500).json({ error: 'YouTube API key not configured' });
+    }
+    const q = String(req.query.q || 'NYC crime news').slice(0, 120);
+    const maxResults = String(Math.min(Number(req.query.maxResults) || 5, 10));
+
     try {
-      const youtubeApiKey = process.env.YOUTUBE_API_KEY;
-      if (!youtubeApiKey) {
-        return res.status(500).json({ error: 'YouTube API key not configured' });
-      }
-      const params = new URLSearchParams({
-        key: youtubeApiKey,
-        part: 'snippet',
-        type: 'video',
-        q: req.query.q || 'NYC crime news',
-        maxResults: req.query.maxResults || '5',
-        order: 'date',
-        relevanceLanguage: 'en',
-        safeSearch: 'none',
+      const videos = await cached(`youtube:${q.toLowerCase()}:${maxResults}`, YOUTUBE_TTL_MS, async () => {
+        const params = new URLSearchParams({
+          key: youtubeApiKey,
+          part: 'snippet',
+          type: 'video',
+          q,
+          maxResults,
+          order: 'date',
+          relevanceLanguage: 'en',
+          safeSearch: 'none',
+        });
+        const response = await fetch(`https://www.googleapis.com/youtube/v3/search?${params}`, {
+          signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error?.message || 'YouTube API error');
+        return (data.items || []).map((item) => ({
+          videoId: item.id?.videoId,
+          title: item.snippet?.title,
+          description: item.snippet?.description,
+          thumbnail: item.snippet?.thumbnails?.medium?.url || item.snippet?.thumbnails?.default?.url,
+          channelTitle: item.snippet?.channelTitle,
+          publishedAt: item.snippet?.publishedAt,
+        }));
       });
-      const response = await fetch(`https://www.googleapis.com/youtube/v3/search?${params}`, {
-        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
-      });
-      const data = await response.json();
-      if (!response.ok) {
-        return res.status(response.status).json({ error: data.error?.message || 'YouTube API error' });
-      }
-      const videos = (data.items || []).map((item) => ({
-        videoId: item.id?.videoId,
-        title: item.snippet?.title,
-        description: item.snippet?.description,
-        thumbnail: item.snippet?.thumbnails?.medium?.url || item.snippet?.thumbnails?.default?.url,
-        channelTitle: item.snippet?.channelTitle,
-        publishedAt: item.snippet?.publishedAt,
-      }));
       res.json({ videos });
     } catch (error) {
-      console.error('YouTube API error:', error);
-      res.status(500).json({ error: 'Failed to fetch videos' });
+      console.error('YouTube API error:', error.message);
+      res.status(502).json({ error: 'Failed to fetch videos' });
     }
   });
 
-  // POST /api/newsroom { query, mode } → { text, engine }
+  // GET /api/candles → { count }
+  app.get('/api/candles', (req, res) => {
+    res.json({ count: candleCount });
+  });
+
+  // POST /api/candles → { count, counted } — one candle per visitor per day
+  app.post('/api/candles', limiter, (req, res) => {
+    const visitor = req.ip || 'unknown';
+    const last = litByVisitor.get(visitor);
+    if (last && Date.now() - last < CANDLE_COOLDOWN_MS) {
+      return res.json({ count: candleCount, counted: false });
+    }
+    litByVisitor.set(visitor, Date.now());
+    candleCount += 1;
+    try {
+      saveCandleCount();
+    } catch (err) {
+      console.error('Could not save the candle count:', err.message);
+    }
+    res.json({ count: candleCount, counted: true });
+  });
+
+  // POST /api/newsroom { query, mode } → NDJSON stream:
+  //   {"type":"token","text":"..."}*  then  {"type":"done","text":"<json>","engine":"local-ai|template|cache"}
   app.post('/api/newsroom', limiter, jsonBody, async (req, res) => {
     const query = typeof req.body?.query === 'string' ? req.body.query.trim().slice(0, 200) : '';
     const mode = req.body?.mode === 'spiderman' ? 'spiderman' : 'peter';
     if (!query) return res.status(400).json({ error: 'Query is required' });
+
+    startStream(res, 'application/x-ndjson');
+    const send = (event) => res.write(`${JSON.stringify(event)}\n`);
+
+    const cacheKey = `article:${mode}:${query.toLowerCase()}`;
+    const hit = getCached(cacheKey, ARTICLE_TTL_MS);
+    if (hit) {
+      send({ type: 'done', text: hit, engine: 'cache' });
+      return res.end();
+    }
 
     // Real news for grounding — RSS keeps the GNews quota for the homepage
     let headlines = [];
@@ -404,16 +710,57 @@ function registerRoutes(app, limiter) {
     const prompt = `Topic: ${query}\n\nReal headlines:\n${headlineList}`;
 
     try {
-      const text =
-        mode === 'peter'
-          ? await ollamaChat(JAMESON_PROMPT, prompt, ARTICLE_SCHEMA, 450)
-          : await ollamaChat(THREAT_ANALYST_PROMPT, prompt, THREAT_SCHEMA, 350);
-      res.json({ text, engine: 'local-ai' });
+      const text = await ollamaChat(
+        [
+          { role: 'system', content: mode === 'peter' ? JAMESON_PROMPT : THREAT_ANALYST_PROMPT },
+          { role: 'user', content: prompt },
+        ],
+        {
+          schema: mode === 'peter' ? ARTICLE_SCHEMA : THREAT_SCHEMA,
+          maxTokens: mode === 'peter' ? 450 : 350,
+          signal: clientAbortSignal(res),
+          onToken: (piece) => send({ type: 'token', text: piece }),
+        }
+      );
+      setCached(cacheKey, text);
+      send({ type: 'done', text, engine: 'local-ai' });
     } catch (err) {
+      if (res.destroyed) return;
       console.warn('Local AI unavailable, using template writer:', err.message);
       const result = mode === 'peter' ? templateArticle(query, headlines) : templateThreat(query, headlines);
-      res.json({ text: JSON.stringify(result), engine: 'template' });
+      send({ type: 'done', text: JSON.stringify(result), engine: 'template' });
     }
+    res.end();
+  });
+
+  // POST /api/jameson/chat { messages: [{ role, content }] } → plain-text stream
+  app.post('/api/jameson/chat', limiter, jsonBody, async (req, res) => {
+    const raw = Array.isArray(req.body?.messages) ? req.body.messages : [];
+    const messages = raw
+      .filter((m) => (m?.role === 'user' || m?.role === 'assistant') && typeof m.content === 'string')
+      .slice(-CHAT_MAX_MESSAGES)
+      .map((m) => ({ role: m.role, content: m.content.slice(0, CHAT_MAX_CHARS) }));
+    if (messages.length === 0 || messages[messages.length - 1].role !== 'user') {
+      return res.status(400).json({ error: 'Last message must be from the user' });
+    }
+
+    startStream(res, 'text/plain; charset=utf-8');
+    let wroteAny = false;
+    try {
+      await ollamaChat([{ role: 'system', content: JAMESON_CHAT_PROMPT }, ...messages], {
+        maxTokens: 220,
+        signal: clientAbortSignal(res),
+        onToken: (piece) => {
+          wroteAny = true;
+          res.write(piece);
+        },
+      });
+    } catch (err) {
+      if (res.destroyed) return;
+      console.warn('Jameson chat fallback:', err.message);
+      if (!wroteAny) res.write(pick(CHAT_FALLBACKS));
+    }
+    res.end();
   });
 
   // POST /api/jobs { category } → { jobs, engine }
@@ -425,10 +772,11 @@ function registerRoutes(app, limiter) {
     let engine = 'local-ai';
     try {
       const text = await ollamaChat(
-        JOB_PROMPT,
-        `Generate "${category}" job listings in New York City.`,
-        JOBS_SCHEMA,
-        700
+        [
+          { role: 'system', content: JOB_PROMPT },
+          { role: 'user', content: `Generate "${category}" job listings in New York City.` },
+        ],
+        { schema: JOBS_SCHEMA, maxTokens: 700, signal: clientAbortSignal(res) }
       );
       jobs = JSON.parse(text).jobs;
       if (!Array.isArray(jobs) || jobs.length === 0) throw new Error('Model returned no jobs');

@@ -94,7 +94,7 @@
 
 .splash-bugle-the {
   display: block;
-  font-family: 'Bangers', cursive;
+  font-family: 'Literata', Georgia, serif;
   color: #888;
   font-size: 1.2rem;
   letter-spacing: 0.5em;
@@ -102,7 +102,7 @@
 }
 
 .splash-bugle-title {
-  font-family: 'Bangers', cursive;
+  font-family: 'Literata', Georgia, serif;
   color: yellow;
   font-size: clamp(2.2rem, 7vw, 4.5rem);
   letter-spacing: 0.06em;
@@ -120,7 +120,7 @@
 }
 
 .splash-main-text {
-  font-family: 'Bangers', cursive;
+  font-family: 'Literata', Georgia, serif;
   color: #E23636;
   font-size: clamp(3rem, 12vw, 7rem);
   line-height: 1.05;
@@ -304,4 +304,120 @@
   .transition-overlay {
     animation-duration: 0.2s !important;
   }
+}
+
+/* Smaller, tucked-in mode switch on tablets and phones so it covers less text */
+@media (max-width: 1024px) {
+  .mode-toggle { bottom: 12px; right: 12px; }
+  .mode-toggle-logo { width: 52px; height: 52px; }
+}
+
+
+/* ==========================================================================
+   NOIR TOGGLE: back to the original design
+   ========================================================================== */
+
+.noir-toggle {
+  position: fixed;
+  right: 2rem;
+  bottom: calc(2rem + 70px + 14px);
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+}
+
+.noir-toggle-badge {
+  width: 70px;
+  height: 70px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 3px solid #ece9e2;
+  box-shadow: 0 0 0 2px #0c0c0c; /* taste-skill-ignore: floating control ring */
+  transition: transform 300ms cubic-bezier(0.22, 1, 0.36, 1), filter 300ms ease;
+}
+
+.noir-toggle:hover .noir-toggle-badge,
+.noir-toggle:focus-visible .noir-toggle-badge {
+  transform: scale(1.1) rotate(-6deg);
+  animation: noir-flicker 900ms steps(2) infinite;
+}
+
+.noir-toggle:disabled { opacity: 0.6; cursor: not-allowed; }
+
+/* "Go back to the good old days" slides out on hover, like a film caption */
+.noir-toggle-label {
+  padding: 8px 12px;
+  background: #0c0c0c;
+  color: #ece9e2;
+  font: italic 500 15px/1.2 'Literata', Georgia, serif;
+  white-space: nowrap;
+  opacity: 0;
+  transform: translateX(10px);
+  transition: opacity 220ms ease, transform 220ms ease;
+  pointer-events: none;
+}
+
+.noir-toggle:hover .noir-toggle-label,
+.noir-toggle:focus-visible .noir-toggle-label {
+  opacity: 1;
+  transform: none;
+}
+
+.noir-toggle:focus-visible { outline: none; }
+.noir-toggle:focus-visible .noir-toggle-badge { outline: 3px solid #ece9e2; outline-offset: 3px; }
+
+@keyframes noir-flicker {
+  50% { filter: brightness(0.82); }
+}
+
+/* The title card of a silent film, shown while the site changes era */
+.intertitle {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: #0b0b0b;
+  animation: intertitle-in 1.5s ease both;
+  pointer-events: none;
+}
+
+.intertitle p {
+  padding: 28px 40px;
+  border: 3px double #ece9e2;
+  color: #ece9e2;
+  font: italic 500 clamp(1.6rem, 1rem + 2.4vw, 3rem)/1.2 'Literata', Georgia, serif;
+  text-align: center;
+  animation: intertitle-flicker 160ms steps(2) infinite;
+}
+
+@keyframes intertitle-in {
+  0% { opacity: 0; }
+  18%, 78% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+@keyframes intertitle-flicker {
+  50% { opacity: 0.88; }
+}
+
+@media (max-width: 1024px) {
+  .noir-toggle { right: 12px; bottom: calc(12px + 52px + 10px); }
+  .noir-toggle-badge { width: 52px; height: 52px; }
+}
+
+@media (hover: none) {
+  .noir-toggle-label { display: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .noir-toggle:hover .noir-toggle-badge,
+  .intertitle p { animation: none; }
+  .intertitle { animation-duration: 0.6s; }
 }

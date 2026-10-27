@@ -1,33 +1,56 @@
 import React from 'react';
-import uncleBenImg from '../../assets/uncleben.jpeg';
+import useCandles from '../../hooks/useCandles';
+import uncleBen from '../../assets/uncleben.jpeg';
 
+function candleLine(count: number): string {
+  if (count === 0) return 'Be the first to light a candle for Ben.';
+  return count === 1 ? '1 person has lit a candle for Ben.' : `${count.toLocaleString('en-US')} people have lit a candle for Ben.`;
+}
+
+/** A quiet memorial set like a framed portrait, with a candle every visitor adds to */
 const UncleBenReminder: React.FC = () => {
-  return (
-    <div className="mt-6 bg-black/80 border border-white/10 rounded-lg overflow-hidden backdrop-blur relative">
-      {/* Image */}
-      <div className="relative">
-        <img
-          src={uncleBenImg}
-          alt="Uncle Ben"
-          className="w-full h-48 object-cover opacity-70"
-        />
-        <div className="absolute inset-0 bg-gradient-to-t from-black via-black/40 to-transparent" />
-      </div>
+  const { count, lit, justLit, light } = useCandles();
 
-      {/* Quote */}
-      <div className="p-5 text-center">
-        <p className="text-white/90 text-sm italic leading-relaxed mb-3" style={{ fontFamily: 'Georgia, serif' }}>
-          "With great power comes great responsibility."
-        </p>
-        <div className="w-12 h-px bg-white/20 mx-auto mb-3" />
-        <p className="text-white/40 text-xs font-mono tracking-widest uppercase">
-          In memory of Ben Parker
-        </p>
-        <p className="text-white/20 text-[10px] font-mono mt-1">
-          The reason behind the mask
-        </p>
+  return (
+    <section className="memorial" id="why" aria-labelledby="memorial-head">
+      <div className="memorial-frame" data-reveal>
+        <div className="memorial-mat">
+          <figure className="memorial-photo">
+            <img src={uncleBen} alt="Ben Parker, saying: with great power comes great responsibility" loading="lazy" />
+          </figure>
+
+          <h2 id="memorial-head">
+            <span>In loving memory of</span>
+            Ben Parker
+          </h2>
+
+          <blockquote className="memorial-quote">“With great power comes great responsibility.”</blockquote>
+
+          <p className="memorial-copy">
+            He said it in a kitchen in Forest Hills, to a nephew who wasn't listening yet. Every swing across this city is
+            still an answer to him.
+          </p>
+
+          <div className="memorial-vigil">
+            <span className={`candle${lit ? ' candle--lit' : ''}`} aria-hidden="true">
+              <span className="candle-flame" />
+              {justLit && <span className="candle-plus">+1</span>}
+            </span>
+
+            <div className="memorial-vigil-text" aria-live="polite">
+              {count !== null && <p className="memorial-count">{candleLine(count)}</p>}
+              {lit ? (
+                <p>Your candle is lit. Thank you for remembering him.</p>
+              ) : (
+                <button type="button" className="memorial-button" onClick={light}>
+                  Light a candle for Ben
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
       </div>
-    </div>
+    </section>
   );
 };
 

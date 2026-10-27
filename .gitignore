@@ -22,3 +22,7 @@
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+.taste-skill/
+
+# Runtime data (the shared candle count for Ben)
+server/data/

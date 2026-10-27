@@ -12,6 +12,7 @@
 
 html {
   scroll-behavior: smooth;
+  background: #ecebe7;
   overflow-y: scroll;
 }
 
@@ -24,8 +25,8 @@ body {
 
 /* Selection colors per mode */
 .peter-mode ::selection {
-  background: #FFC500;
-  color: #1A1A1A;
+  background: #c8102e;
+  color: #ffffff;
 }
 
 .spiderman-mode ::selection {

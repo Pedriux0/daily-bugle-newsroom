@@ -10,22 +10,13 @@ interface NewsAPIResponse {
 type Feed = 'bugle' | 'spidey';
 
 const REQUEST_TIMEOUT_MS = 15000;
-const CACHE_KEY = 'bugle-headlines-v1';
+const CACHE_KEY = 'bugle-headlines-v2';
 const CACHE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 
+// Publisher feeds that carry each story's own photo (see server/lib/routes.js)
 const FEED_URLS: Record<Feed, string> = {
-  // General headlines for Bugle mode
-  bugle: `/api/news/top-headlines?${new URLSearchParams({
-    country: 'us',
-    pageSize: '10',
-    category: 'general',
-  })}`,
-  // Crime/security news for Spider-Man mode
-  spidey: `/api/news/search?${new URLSearchParams({
-    q: 'crime OR robbery OR arrest OR shooting OR cybercrime OR security threat OR police OR emergency',
-    pageSize: '10',
-    language: 'en',
-  })}`,
+  bugle: '/api/news/feed/bugle',
+  spidey: '/api/news/feed/spidey',
 };
 
 function filterValid(articles: NewsApiArticle[]): NewsApiArticle[] {

@@ -3,7 +3,7 @@ const { registerRoutes } = require('../server/lib/routes');
 // ── Simple in-memory rate limiter ──────────────────────────────────────
 const hits = new Map();
 const WINDOW_MS = 60 * 1000; // 1 minute
-const MAX_REQUESTS = 20;
+const MAX_REQUESTS = 120; // local dev only; production uses server/index.js limits
 
 function rateLimit(req, res, next) {
   const ip = req.ip || req.connection?.remoteAddress || 'local';

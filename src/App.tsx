@@ -2,7 +2,7 @@ import React, { useState, useCallback } from 'react';
 import SplashScreen from './components/SplashScreen';
 import ModeToggle from './components/ModeToggle';
 import useYouTubePlayer from './hooks/useYouTubePlayer';
-import useClaudeAPI from './hooks/useClaudeAPI';
+import useNewsroomAI from './hooks/useNewsroomAI';
 import useNewsAPI from './hooks/useNewsAPI';
 
 // Bugle mode components
@@ -22,6 +22,7 @@ import CommunitySection from './components/spidey/CommunitySection';
 import SpideyFooter from './components/spidey/SpideyFooter';
 import JobBoard from './components/spidey/JobBoard';
 import UncleBenReminder from './components/spidey/UncleBenReminder';
+import MusicPrompt from './components/spidey/MusicPrompt';
 
 import WebShooterCursor from './components/WebShooterCursor';
 import spidermanBg from './assets/background.jpg';
@@ -36,9 +37,17 @@ function App() {
   const [mode, setMode] = useState<Mode>('peter');
   const [isTransitioning, setIsTransitioning] = useState(false);
   const { play, stop, toggle, isPlaying } = useYouTubePlayer(THEME_SONG_ID);
-  const { articleData, threatData, isLoading, error, fetchNews } = useClaudeAPI();
-  const { bugleHeadlines, spideyHeadlines } = useNewsAPI();
+  const { articleData, threatData, isLoading, error, fetchNews } = useNewsroomAI();
+  const {
+    bugleHeadlines,
+    spideyHeadlines,
+    isLoading: headlinesLoading,
+    retry: retryHeadlines,
+  } = useNewsAPI();
   const [cursorEnabled, setCursorEnabled] = useState(true);
+  // null = not asked yet this session; otherwise the user's answer
+  const [musicChoice, setMusicChoice] = useState<boolean | null>(null);
+  const [showMusicPrompt, setShowMusicPrompt] = useState(false);
 
   const handleSplashComplete = useCallback(() => {
     setShowSplash(false);
@@ -51,14 +60,34 @@ function App() {
     const next: Mode = mode === 'peter' ? 'spiderman' : 'peter';
 
     if (next === 'spiderman') {
-      play();
+      if (musicChoice === null) {
+        setShowMusicPrompt(true);
+      } else if (musicChoice) {
+        play();
+      }
     } else {
+      setShowMusicPrompt(false);
       stop();
     }
 
     setTimeout(() => setMode(next), 500);
     setTimeout(() => setIsTransitioning(false), 1000);
-  }, [mode, isTransitioning, play, stop]);
+  }, [mode, isTransitioning, musicChoice, play, stop]);
+
+  const handleMusicChoice = useCallback(
+    (shouldPlay: boolean) => {
+      setMusicChoice(shouldPlay);
+      setShowMusicPrompt(false);
+      if (shouldPlay) play();
+    },
+    [play]
+  );
+
+  const handleToggleMusic = useCallback(() => {
+    setShowMusicPrompt(false);
+    setMusicChoice(!isPlaying);
+    toggle();
+  }, [isPlaying, toggle]);
 
   const handleSearch = useCallback(
     (query: string) => {
@@ -90,7 +119,7 @@ function App() {
       {mode === 'peter' ? (
         /* ===== DAILY BUGLE MODE ===== */
         <div className="min-h-screen bg-white">
-          <BugleHeader isPlaying={isPlaying} onToggleMusic={toggle} />
+          <BugleHeader isPlaying={isPlaying} onToggleMusic={handleToggleMusic} />
           <main className="max-w-7xl mx-auto px-4 py-8">
             <BugleMainStory
               articleData={articleData}
@@ -98,6 +127,8 @@ function App() {
               error={error}
               onSearch={handleSearch}
               topHeadline={bugleTop}
+              headlinesLoading={headlinesLoading}
+              onRetryHeadlines={retryHeadlines}
             />
             <BugleSecondaryStories articles={bugleSecondary} />
             <BugleOpinionSection />
@@ -127,7 +158,7 @@ function App() {
           ></div>
 
           <div className="relative z-10">
-            <SpideyHeader isPlaying={isPlaying} onToggleMusic={toggle} />
+            <SpideyHeader isPlaying={isPlaying} onToggleMusic={handleToggleMusic} />
             <main className="max-w-screen-2xl mx-auto px-4 py-6">
               <StatsPanel />
               <div className="grid lg:grid-cols-3 gap-6">
@@ -138,6 +169,8 @@ function App() {
                     error={error}
                     onSearch={handleSearch}
                     topHeadline={spideyTop}
+                    headlinesLoading={headlinesLoading}
+                    onRetryHeadlines={retryHeadlines}
                   />
                   <NewsGrid articles={spideySecondary} />
                   <JobBoard />
@@ -153,6 +186,8 @@ function App() {
           </div>
         </div>
       )}
+
+      {mode === 'spiderman' && showMusicPrompt && <MusicPrompt onChoose={handleMusicChoice} />}
 
       <ModeToggle
         mode={mode}

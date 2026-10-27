@@ -24,7 +24,8 @@ Toggle between two completely different identities with a single button:
 | **Job Board** | - | Recruitment Terminal (Spider-Man jobs) |
 
 ### AI-Powered Editorial Desk
-- **Claude AI (Haiku 4.5)** with web search tool rewrites real news through two personas
+- **Local neural network (Ollama, free)** rewrites real Google News headlines through two personas — no paid API needed
+- Falls back to a built-in template writer when the local model isn't running, so the page never breaks
 - **J. Jonah Jameson** — Rewrites any topic with anti-Spider-Man bias, sensationalist headlines, and angry editorial takes
 - **Spider-Sense Threat Analyst** — Classifies threats by severity (Green/Yellow/Red), delivers tactical intelligence briefings
 - Structured JSON output with graceful fallback parsing
@@ -51,7 +52,7 @@ Toggle between two completely different identities with a single button:
 |-----------|---------|
 | React 19 + TypeScript | Frontend framework |
 | Tailwind CSS 3 | Styling (utility-first) |
-| Claude AI (Haiku 4.5) | AI editorial desk + job generation |
+| Ollama (Llama 3.2 3B, local) | AI editorial desk + job generation |
 | GNews API | Real news headlines |
 | YouTube Data API v3 | Crime news video feed |
 | NYC Open Data (SODA) | Real-time 311 community reports |
@@ -66,14 +67,15 @@ Toggle between two completely different identities with a single button:
 ```
 Browser (React SPA)
     |
-    |-- /api/chat ---------> Express Proxy ---------> Anthropic API (Claude)
-    |-- /api/news/* -------> Express Proxy ---------> GNews API
+    |-- /api/newsroom -----> Express ---> Google News RSS + Ollama (local AI)
+    |-- /api/jobs ---------> Express ---> Ollama (local AI)
+    |-- /api/news/* -------> Express ---> GNews API (cached 30 min, RSS fallback)
     |-- /api/youtube/* ----> Express Proxy ---------> YouTube Data API
     |-- NYC 311 -----------> Direct fetch ----------> data.cityofnewyork.us (no key)
     |-- YouTube IFrame ----> Direct embed ----------> youtube.com (audio only)
 ```
 
-All API keys are kept server-side in the Express proxy. The frontend never touches secrets.
+All API keys are kept server-side. Routes live in `server/lib/routes.js`, shared by the dev server (`src/setupProxy.js`) and production (`server/index.js`).
 
 ## Project Structure
 
@@ -105,16 +107,13 @@ src/
 │   └── shared/
 │       └── ImageWithFallback.tsx    # Image with error fallback
 ├── hooks/
-│   ├── useClaudeAPI.ts              # Anthropic API integration
-│   ├── useNewsAPI.ts                # GNews headline fetcher
+│   ├── useNewsroomAI.ts             # Local AI editorial desk
+│   ├── useNewsAPI.ts                # Headline fetcher (cached, with retry)
 │   ├── useYouTubeNews.ts            # YouTube video search
 │   ├── useYouTubePlayer.ts          # Theme song player
 │   ├── useNYC311.ts                 # NYC Open Data 311 reports
 │   ├── useJobSearch.ts              # AI job listing generator
 │   └── useWebShooter.ts            # Canvas cursor trail logic
-├── prompts/
-│   ├── jameson.ts                   # Jameson AI system prompt
-│   └── threatAnalyst.ts            # Threat analyst system prompt
 ├── utils/
 │   └── parseArticle.ts             # JSON parser + citation stripper
 └── types/
@@ -145,10 +144,20 @@ cp .env.example .env
 
 Edit `.env` with your keys:
 ```env
-ANTHROPIC_API_KEY=sk-ant-your-key    # https://console.anthropic.com
-GNEWS_API_KEY=your-gnews-key         # https://gnews.io/register
+GNEWS_API_KEY=your-gnews-key         # optional — https://gnews.io/register
 YOUTUBE_API_KEY=your-youtube-key     # https://console.cloud.google.com/apis
 ```
+
+### Local AI (free)
+
+The AI desk runs a local neural network with [Ollama](https://ollama.com/download):
+
+```bash
+curl -fsSL https://ollama.com/install.sh | sh   # Linux; macOS/Windows: download the app
+ollama pull llama3.2:3b
+```
+
+Ollama runs in the background on port 11434. To use a different model, set `OLLAMA_MODEL` in `.env` (e.g. `qwen2.5:7b` for better writing, `llama3.2:1b` for slower machines). In production, Ollama must run on the same server (or point `OLLAMA_URL` at it).
 
 ### Development
 
@@ -174,16 +183,13 @@ pm2 start server/index.js --name daily-bugle
 pm2 save && pm2 startup
 ```
 
-## API Cost Optimization
+## Cost
 
-The app is optimized to minimize API costs:
-- **Model**: Claude Haiku 4.5 (10x cheaper than Sonnet)
-- **Web search**: Limited to `max_uses: 1` per call
-- **max_tokens**: Capped at 768 (responses are short)
-- **System prompts**: Trimmed to ~200 tokens each
-- **Job search**: No web search tool (pure generation)
-- **NYC 311 + YouTube**: Free APIs with no token cost
-- **Estimated cost**: ~$0.001 per editorial search
+Everything runs on free tiers or locally:
+- **AI**: Local Ollama model, $0 per request
+- **Grounding news**: Google News RSS, no key needed
+- **Homepage headlines**: GNews free tier, cached 30 minutes server-side so it stays under 100 req/day, with an RSS fallback
+- **NYC 311 + YouTube**: Free APIs
 
 ## What I Learned
 

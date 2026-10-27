@@ -9,6 +9,8 @@ interface BugleMainStoryProps {
   error: string | null;
   onSearch: (query: string) => void;
   topHeadline: NewsApiArticle | null;
+  headlinesLoading: boolean;
+  onRetryHeadlines: () => void;
 }
 
 /** Split body into paragraphs — handles \n\n, literal \\n\\n, or long single blocks */
@@ -48,7 +50,7 @@ const BUGLE_SUGGESTIONS = [
   'Avengers tower construction',
 ];
 
-const BugleMainStory: React.FC<BugleMainStoryProps> = ({ articleData, isLoading, error, onSearch, topHeadline }) => {
+const BugleMainStory: React.FC<BugleMainStoryProps> = ({ articleData, isLoading, error, onSearch, topHeadline, headlinesLoading, onRetryHeadlines }) => {
   const [query, setQuery] = React.useState('');
   const [showInfo, setShowInfo] = React.useState(false);
 
@@ -141,7 +143,7 @@ const BugleMainStory: React.FC<BugleMainStoryProps> = ({ articleData, isLoading,
         </div>
       )}
 
-      {/* Claude-generated article */}
+      {/* AI-generated article */}
       {articleData && !isLoading && (
         <>
           <h2
@@ -282,7 +284,19 @@ const BugleMainStory: React.FC<BugleMainStoryProps> = ({ articleData, isLoading,
       {/* Fallback: no news, no article, no error */}
       {!articleData && !isLoading && !error && !topHeadline && (
         <div className="text-center py-12 text-gray-500" style={{ fontFamily: 'Georgia, serif' }}>
-          <p className="text-lg">Loading today's headlines...</p>
+          {headlinesLoading ? (
+            <p className="text-lg animate-pulse">Loading today's headlines...</p>
+          ) : (
+            <>
+              <p className="text-lg mb-4">The presses are jammed — today's headlines didn't come through.</p>
+              <button
+                onClick={onRetryHeadlines}
+                className="py-2 px-5 bg-red-700 text-white font-bangers text-lg uppercase tracking-wider cursor-pointer hover:bg-red-800 transition-colors"
+              >
+                Run the presses again
+              </button>
+            </>
+          )}
         </div>
       )}
     </article>

@@ -11,6 +11,8 @@ interface SpideyFeaturedStoryProps {
   error: string | null;
   onSearch: (query: string) => void;
   topHeadline: NewsApiArticle | null;
+  headlinesLoading: boolean;
+  onRetryHeadlines: () => void;
 }
 
 const THREAT_COLORS: Record<string, string> = {
@@ -35,7 +37,7 @@ const SPIDEY_SUGGESTIONS = [
   'Underground weapons trafficking',
 ];
 
-const SpideyFeaturedStory: React.FC<SpideyFeaturedStoryProps> = ({ threatData, isLoading, error, onSearch, topHeadline }) => {
+const SpideyFeaturedStory: React.FC<SpideyFeaturedStoryProps> = ({ threatData, isLoading, error, onSearch, topHeadline, headlinesLoading, onRetryHeadlines }) => {
   const [query, setQuery] = React.useState('');
   const [showInfo, setShowInfo] = React.useState(false);
 
@@ -126,7 +128,7 @@ const SpideyFeaturedStory: React.FC<SpideyFeaturedStoryProps> = ({ threatData, i
         </div>
       )}
 
-      {/* Claude-generated threat report */}
+      {/* AI-generated threat report */}
       {threatData && !isLoading && (
         <div className="relative z-10">
           <div className="flex items-center gap-4 px-6 py-4 border-b border-red-600/20">
@@ -221,7 +223,19 @@ const SpideyFeaturedStory: React.FC<SpideyFeaturedStoryProps> = ({ threatData, i
       {/* Fallback */}
       {!threatData && !isLoading && !error && !topHeadline && (
         <div className="text-center py-12 relative z-10">
-          <p className="text-red-500 font-mono tracking-widest text-sm">Initializing threat feeds...</p>
+          {headlinesLoading ? (
+            <p className="text-red-500 font-mono tracking-widest text-sm animate-pulse">Initializing threat feeds...</p>
+          ) : (
+            <>
+              <p className="text-red-500 font-mono tracking-widest text-sm mb-4">Threat feeds offline. Signal lost.</p>
+              <button
+                onClick={onRetryHeadlines}
+                className="py-2 px-5 bg-red-600 text-white font-bold font-mono text-sm uppercase tracking-wider rounded-lg hover:shadow-[0_0_15px_rgba(226,54,54,0.3)] transition cursor-pointer"
+              >
+                Reconnect
+              </button>
+            </>
+          )}
         </div>
       )}
     </article>

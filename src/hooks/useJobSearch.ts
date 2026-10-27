@@ -9,23 +9,6 @@ export interface JobListing {
   salary?: string;
 }
 
-const JOB_SYSTEM_PROMPT = `You are Spider-Man's job search assistant. Generate realistic job listings that Spider-Man (Peter Parker) would be qualified for given his abilities: superhuman agility, web-slinging, spider-sense, engineering genius, photography skills, and crime-fighting experience.
-
-When given a job category, generate 6 realistic job listings in NYC. Return a JSON array in this exact format:
-
-[
-  {
-    "title": "Job Title",
-    "company": "Company Name",
-    "location": "City, State",
-    "description": "Brief 1-2 sentence description of why Spider-Man would be great at this job",
-    "url": "https://www.indeed.com/viewjob?jk=example",
-    "salary": "$XX,XXX - $XX,XXX"
-  }
-]
-
-Use real company names based in NYC. Return ONLY the JSON array, no markdown, no extra text.`;
-
 const SPIDEY_JOB_CATEGORIES = [
   'cybersecurity analyst',
   'structural engineer',
@@ -49,50 +32,23 @@ const useJobSearch = () => {
     setActiveCategory(category);
 
     try {
-      const response = await fetch('/api/chat', {
+      const response = await fetch('/api/jobs', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          model: 'claude-haiku-4-5-20251001',
-          max_tokens: 768,
-          system: JOB_SYSTEM_PROMPT,
-          messages: [
-            {
-              role: 'user',
-              content: `Generate "${category}" job listings in New York City.`,
-            },
-          ],
-        }),
+        body: JSON.stringify({ category }),
+        signal: AbortSignal.timeout(150000),
       });
 
       if (!response.ok) {
         const errBody = await response.json().catch(() => ({}));
-        throw new Error(
-          errBody?.error?.message || `API responded with status ${response.status}`
-        );
+        throw new Error(errBody?.error || `Server responded with status ${response.status}`);
       }
 
-      const data = await response.json();
-
-      // Extract text content blocks
-      const textContent =
-        (data.content as { type: string; text?: string }[])
-          ?.filter((block) => block.type === 'text')
-          ?.map((block) => block.text || '')
-          ?.join('') || '';
-
-      if (!textContent) {
-        throw new Error('No text content in API response');
-      }
-
-      // Parse JSON array from response
-      const jsonMatch = textContent.match(/\[[\s\S]*\]/);
-      if (jsonMatch) {
-        const parsed = JSON.parse(jsonMatch[0]) as JobListing[];
-        setJobs(parsed);
-      } else {
+      const data = (await response.json()) as { jobs?: JobListing[] };
+      if (!Array.isArray(data.jobs)) {
         throw new Error('Could not parse job listings');
       }
+      setJobs(data.jobs);
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to search jobs';
       setError(message);

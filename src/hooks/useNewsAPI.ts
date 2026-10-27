@@ -7,70 +7,95 @@ interface NewsAPIResponse {
   articles: NewsApiArticle[];
 }
 
+type Feed = 'bugle' | 'spidey';
+
+const REQUEST_TIMEOUT_MS = 15000;
+const CACHE_KEY = 'bugle-headlines-v1';
+const CACHE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+
+const FEED_URLS: Record<Feed, string> = {
+  // General headlines for Bugle mode
+  bugle: `/api/news/top-headlines?${new URLSearchParams({
+    country: 'us',
+    pageSize: '10',
+    category: 'general',
+  })}`,
+  // Crime/security news for Spider-Man mode
+  spidey: `/api/news/search?${new URLSearchParams({
+    q: 'crime OR robbery OR arrest OR shooting OR cybercrime OR security threat OR police OR emergency',
+    pageSize: '10',
+    language: 'en',
+  })}`,
+};
+
 function filterValid(articles: NewsApiArticle[]): NewsApiArticle[] {
-  return articles.filter(
-    (a) => a.title && a.title !== '[Removed]' && a.description
-  );
+  return articles.filter((a) => a.title && a.title !== '[Removed]');
+}
+
+/** Last good headlines, so the page renders instantly while fresh ones load */
+function readCache(feed: Feed): NewsApiArticle[] {
+  try {
+    const raw = localStorage.getItem(`${CACHE_KEY}:${feed}`);
+    if (!raw) return [];
+    const { savedAt, articles } = JSON.parse(raw);
+    return Date.now() - savedAt < CACHE_MAX_AGE_MS && Array.isArray(articles) ? articles : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeCache(feed: Feed, articles: NewsApiArticle[]) {
+  try {
+    localStorage.setItem(`${CACHE_KEY}:${feed}`, JSON.stringify({ savedAt: Date.now(), articles }));
+  } catch {
+    // Storage full or blocked — caching is optional
+  }
+}
+
+async function fetchFeed(feed: Feed): Promise<NewsApiArticle[]> {
+  const res = await fetch(FEED_URLS[feed], { signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
+  if (!res.ok) throw new Error(`News feed responded with status ${res.status}`);
+  const data: NewsAPIResponse = await res.json();
+  if (data.status !== 'ok') throw new Error('News feed returned an error');
+  return filterValid(data.articles);
 }
 
 const useNewsAPI = () => {
-  const [bugleHeadlines, setBugleHeadlines] = useState<NewsApiArticle[]>([]);
-  const [spideyHeadlines, setSpideyHeadlines] = useState<NewsApiArticle[]>([]);
+  const [bugleHeadlines, setBugleHeadlines] = useState<NewsApiArticle[]>(() => readCache('bugle'));
+  const [spideyHeadlines, setSpideyHeadlines] = useState<NewsApiArticle[]>(() => readCache('spidey'));
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  /** Fetch both feeds on mount */
   const fetchAllNews = useCallback(async () => {
     setIsLoading(true);
     setError(null);
 
-    try {
-      // Fetch general headlines for Bugle mode
-      const bugleParams = new URLSearchParams({
-        country: 'us',
-        pageSize: '10',
-        category: 'general',
+    // Each feed updates as soon as it arrives — a slow one doesn't block the other
+    const load = (feed: Feed, setter: (articles: NewsApiArticle[]) => void) =>
+      fetchFeed(feed).then((articles) => {
+        if (articles.length > 0) {
+          setter(articles);
+          writeCache(feed, articles);
+        }
       });
 
-      // Fetch crime/security news for Spider-Man mode
-      const spideyParams = new URLSearchParams({
-        q: 'crime OR robbery OR arrest OR shooting OR cybercrime OR security threat OR police OR emergency',
-        pageSize: '10',
-        sortBy: 'publishedAt',
-        language: 'en',
-      });
+    const results = await Promise.allSettled([
+      load('bugle', setBugleHeadlines),
+      load('spidey', setSpideyHeadlines),
+    ]);
 
-      const [bugleRes, spideyRes] = await Promise.all([
-        fetch(`/api/news/top-headlines?${bugleParams}`),
-        fetch(`/api/news/search?${spideyParams}`),
-      ]);
-
-      if (bugleRes.ok) {
-        const bugleData: NewsAPIResponse = await bugleRes.json();
-        if (bugleData.status === 'ok') {
-          setBugleHeadlines(filterValid(bugleData.articles));
-        }
-      }
-
-      if (spideyRes.ok) {
-        const spideyData: NewsAPIResponse = await spideyRes.json();
-        if (spideyData.status === 'ok') {
-          setSpideyHeadlines(filterValid(spideyData.articles));
-        }
-      }
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'Failed to fetch news';
-      setError(message);
-    } finally {
-      setIsLoading(false);
+    const failed = results.find((r): r is PromiseRejectedResult => r.status === 'rejected');
+    if (failed) {
+      setError(failed.reason instanceof Error ? failed.reason.message : 'Failed to fetch news');
     }
+    setIsLoading(false);
   }, []);
 
   useEffect(() => {
     fetchAllNews();
   }, [fetchAllNews]);
 
-  return { bugleHeadlines, spideyHeadlines, isLoading, error };
+  return { bugleHeadlines, spideyHeadlines, isLoading, error, retry: fetchAllNews };
 };
 
 export default useNewsAPI;

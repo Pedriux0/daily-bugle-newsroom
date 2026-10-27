@@ -1,7 +1,7 @@
 import { ArticleData, ThreatData } from '../types/news';
 
 /**
- * Strips Claude web search <cite> tags and other markup from text.
+ * Strips stray <cite> tags and other markup from text.
  */
 function stripCitations(text: string): string {
   return text
